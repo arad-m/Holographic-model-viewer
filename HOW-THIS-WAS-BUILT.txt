@@ -1,0 +1,459 @@
+HOW THIS PROJECT WAS BUILT
+Holographic Model Viewer
+Use this as the notes for explaining the project. It covers what it is, what it
+uses, how it was put together, and the details worth knowing if someone asks
+how a particular part works.
+
+
+1. WHAT IT IS, IN ONE MINUTE
+
+This is a holographic 3D model viewer that runs entirely in the browser.
+
+You drop in a .glb, .gltf, .obj, or .stl file. The model is drawn as a glowing
+hologram on a dark stage. You can orbit, pan, and zoom it with the mouse, with
+touch, or with your hands in front of the webcam. You can also cut it on a
+plane, explode it into parts, click a part to name it, save models locally,
+take a screenshot, and record a video.
+
+Nothing is uploaded. There is no account and no backend. The page talks to the
+camera, draws with WebGL, and stores files in the browser.
+
+
+2. WHAT IT USES
+
+Runtime
+  - The browser: WebGL2, getUserMedia, IndexedDB, localStorage, MediaRecorder.
+  - The camera only works on localhost or HTTPS. A file:// page will be refused.
+
+Build
+  - Node.js 18 or newer (developed on 22).
+  - Vite 6. The source is plain JavaScript modules, not React, not TypeScript.
+  - Tests are Node's built-in test runner: npm test. There are 224 checks.
+    They test the maths (gestures, slice, explode, parallax, quality) without
+    starting a camera or a GPU.
+
+Libraries, pinned on purpose
+  - three 0.171 — the 3D scene, camera, loaders, and the hologram shader.
+  - @mediapipe/tasks-vision 0.10.35 — hand landmarks and face landmarks.
+    The WASM runtime is copied into public/wasm and the models into
+    public/models (hand_landmarker.task, about 7.8 MB, and
+    face_landmarker.task, about 3.7 MB). The page does not fetch them from
+    Google at runtime. GPU is tried first; if creating the tracker throws, it
+    falls back to CPU.
+
+How to run it
+  cd into the project
+  npm install
+  npm run dev
+  Open the URL Vite prints, normally http://localhost:5173
+
+  npm run build then npm run preview makes the production build.
+
+  A dev shortcut loads a sample through the same path as a real upload:
+  http://localhost:5173/?model=/samples/knot.glb
+
+Sample files in public/samples
+  knot.glb     a single-mesh knot, the usual demo model
+  torus.stl    a binary STL
+  parts.obj    three separate boxes, so Explode and Inspect have parts
+  broken.glb   a corrupt file, to show the error path
+
+
+3. HOW IT WAS BUILT
+
+It was built in phases. Each phase added one capability and left the previous
+ones working. The shape of the program was fixed at the start and was not
+reorganised later.
+
+Phase 0 — the skeleton
+  One HTML page (index.html) that mounts a div and loads src/main.js.
+  One shared state object. One tiny event bus. One animation loop.
+
+Phase 1 — the hologram and the mouse
+  A Three.js scene, a pedestal, a custom hologram shader, and loaders for
+  glb/gltf, obj, and stl. Mouse drag orbits, right-drag pans, the wheel zooms,
+  double-click resets. The model slowly spins while you are not touching it.
+
+Phase 2 — the camera and pinch detection
+  One webcam stream. MediaPipe finds up to two hands. A pinch is "thumb and
+  index are close", measured against the size of the hand, not against pixels.
+
+Phase 3 — smoothing and pinch-drag rotation
+  Landmarks are smoothed (a One Euro style filter) so a shaky hand does not
+  shake the model. A one-hand pinch drag rotates the model.
+
+Phase 4 — the full gesture set
+  Two-hand pinch zooms. A fist drag pans. Holding an open palm resets the view.
+  Only one action runs at a time, and it has to be stable for a few frames
+  before it starts, so a flicker does not fire a gesture.
+
+Phase 5 — feedback
+  A hand skeleton in the 3D scene, status text, and synthesized sound
+  (a grab blip, a zoom tone, a reset chime, a quiet ambient hum). Audio is
+  created only after the first click or key, because browsers require that.
+
+Phase 6 — presets and settings
+  Six looks: cyan, orange, green, ironman, wireframe, points.
+  A settings drawer generated from one schema. Settings are saved in
+  localStorage under the key holographic-viewer:settings:v1.
+
+Phase 7 — four tools
+  Orbit, Slice, Explode, Inspect. Keys 1–4 pick the tool. Shift+1 through
+  Shift+6 pick a preset. S opens settings. Escape closes it.
+
+Phase 8 — library and capture
+  Models are saved in IndexedDB (database name holographic-viewer), with a
+  thumbnail. A screenshot is taken from a WebGL render target, so the buttons
+  are not in the picture. Video uses MediaRecorder on the canvas stream, with
+  an optional webcam inset.
+
+Phase 9 — touch, quality, head parallax
+  One finger orbits, two fingers pinch to zoom and drag to pan.
+  Low / Medium / High quality, plus an automatic step down if the frame rate
+  stays under 30 for five seconds.
+  Head parallax: the camera leans as you move your head.
+
+After that, two tracking problems were fixed because they showed up in use:
+
+  Second hand. MediaPipe's video mode locks onto the first hand and then stops
+  searching the rest of the frame, so a second hand can be in view and never
+  be found. A second detector does a full-frame search about every 700 ms
+  while only one hand is visible. The live tracker stays in video mode the
+  whole time — flipping one tracker's mode rebuilds the graph and stalls the
+  frame. Once both hands are found, that full-frame detector updates them
+  about 15 times a second instead of every frame, and the cheap video tracker
+  takes over again when one hand leaves. The status line says "2 hands". The
+  camera preview uses object-fit: contain so the sides of a widescreen camera
+  are not cropped off inside the 4:3 preview.
+
+  Head parallax. The first version moved the camera by only a couple of degrees
+  and kept the model glued to the centre of the screen, so a real lean looked
+  like nothing. It now orbits far enough to see the side of the model, and the
+  look-at point follows part of the way so the hologram also slides. The
+  readout says "Face recognized" when a face is actually being tracked.
+
+
+4. THE RULES THE CODE FOLLOWS
+
+These are the sentences to use if someone asks why the code is split up the
+way it is.
+
+  There is one state object, in src/state.js. It is the only source of truth.
+  Mutators emit "state:changed" with the list of keys that changed.
+  Two exceptions, both deliberate: setTransform can be silent during a drag
+  (otherwise the bus would fire 60 times a second), and setGesture never emits
+  because the loop reads it directly.
+
+  There is exactly one requestAnimationFrame loop, in src/loop.js. Every
+  callback receives dt in seconds, clamped so a background tab cannot teleport
+  the animation. Smoothing uses 1 - exp(-rate * dt), so 30 fps and 144 fps
+  converge in the same amount of real time.
+
+  Gesture maths is pure. src/input/gestures.js does not touch the DOM, Three.js,
+  or the state object. It returns a GestureState. main.js is the only place
+  that turns that into a change of the model.
+
+  The renderer never reads raw landmarks. It reads state.transform, or a plain
+  camera offset for parallax.
+
+  The webcam image is mirrored once, at the input layer, with x = 1 - x.
+  Hands and the face both do this. Nothing downstream flips x again. The
+  preview video is also mirrored in CSS. The landmark canvas is not, because
+  the points are already in mirror space, which is why the skeleton lines up
+  with the picture.
+
+  Distances on a hand are divided by the size of that hand (wrist to middle
+  knuckle). A hand close to the camera and a hand far away then use the same
+  pinch threshold.
+
+  Geometries, materials, and textures are disposed when a model is replaced.
+  MediaPipe timestamps passed to detectForVideo are strictly increasing.
+  A repeated timestamp throws and would kill the animation loop, so the
+  trackers bump the clock by a millisecond when a frame is repeated, and they
+  catch a failed inference instead of letting it escape the loop.
+
+
+5. WHAT HAPPENS IN ONE FRAME
+
+src/main.js registers a single update. In order:
+
+  1. Measure the frame time (for the FPS counter and the quality watchdog).
+  2. Detect hands, or reuse the last sample if this quality level is skipping
+     a frame. Run the gesture engine. Write state.gesture.
+  3. Apply the gesture to the transform (rotate, zoom, pan, or start a reset).
+  4. Ease a reset if one is running. Update the hologram shader uniforms.
+  5. Update the active tool (slice plane, explode, inspect highlight).
+  6. Write the transform onto the Three.js object.
+  7. Sample the face if it is due, ease the camera offset, move the camera.
+  8. Render.
+  9. Tick the video recorder, and save a library thumbnail if one is queued.
+
+Hand detection and face detection share the one webcam. There is no second
+getUserMedia call.
+
+
+6. HANDS, IN ENOUGH DETAIL TO EXPLAIN THEM
+
+MediaPipe HandLandmarker returns 21 landmarks per hand, plus a left/right
+label. The tracker asks for two hands. The raw image is unmirrored, so the
+tracker flips x and swaps the handedness label. After that, +x is the user's
+right.
+
+Video mode is the cheap path: once a hand is being tracked, the palm detector
+does not scan the whole frame again. That is why a second hand was missed.
+The code in src/input/handAcquire.js decides when to spend a full-frame search.
+A second HandLandmarker, created in image mode, does that search about every
+700 ms while exactly one hand is tracked. It is a second detector on purpose:
+calling setOptions to flip the live tracker between video and image rebuilds
+the MediaPipe graph and was stalling the hologram several times a second.
+If the search finds two hands, that detector keeps them and is limited to
+about 15 reads a second, so the frames in between only draw. When the count
+drops below two, the video tracker takes the hand back. While the second
+detector is still loading, detect() does not touch it.
+
+The gesture engine then classifies each hand:
+
+  Pinch    thumb tip close to index tip, with hysteresis so it does not
+           flicker on the boundary. Closing starts the pinch; opening a bit
+           further ends it.
+  Fist     every fingertip curled in toward the palm.
+  Open palm  every finger extended.
+  A pinch is never also reported as a fist or a palm.
+
+Priority, highest wins, and only one action per frame:
+
+  1. Two hands pinching  -> zoom. The zoom is relative to how far apart the
+     hands were when the zoom started. Moving them apart zooms in.
+  2. One hand pinching   -> rotate, in whatever direction the hand moved.
+     Letting go keeps that spin and fades it out. The axis is not fixed:
+     src/render/orientation.js stores the pose as a quaternion and applies
+     the drag in screen space, so the model can be rolled to any side.
+  3. Fist                -> pan.
+  4. Open palm, held     -> reset, once. You have to drop the palm and raise
+     it again before another reset will fire.
+
+An action has to hold for a few frames before it activates. When a hand
+disappears for a moment during a pinch, the pinch is kept for a short dropout
+window so the model does not jump.
+
+The numbers you can point at in the debug panel (the Debug button in the
+toolbar) are the pinch ratio, whether that hand is pinching, a fist, or a
+palm, the frame rate, the inference time, and GPU or CPU.
+
+
+7. THE HOLOGRAM
+
+src/render/hologramMaterial.js builds a ShaderMaterial. It is additive, drawn
+on both sides, and it does not write depth, which is what gives the glassy
+overlap. The shader layers are:
+
+  a fresnel rim (brighter where the surface turns away from the camera),
+  scrolling scanlines in world space,
+  a gentle flicker, with a rare full-surface dropout,
+  an occasional glitch that shifts a slice of the model,
+  an optional faint wireframe shell,
+  and, for the points preset, a point cloud instead of the solid surface.
+
+Every loaded model is swapped onto this material. The loader centres it on the
+origin and scales it so the largest side is 1.6 world units. The camera sits
+at about z = 4.6, looking slightly down, with a 40 degree field of view. A
+glowing ring under the model is the pedestal.
+
+If the load fails, the error is shown and the previous model stays. A .txt
+file, or the broken sample, is the demo for that.
+
+
+8. THE FOUR TOOLS
+
+Orbit     the normal viewer. A drag tumbles the model in any direction, and
+          letting go keeps it spinning for a moment before it fades to a stop.
+Slice     a clipping plane through the model. Vertical drag moves the plane.
+          The glowing line on the cut is computed from the triangles, not from
+          a texture.
+Explode   each mesh moves out from the centre along its own direction.
+          Amount 0 is exactly the original positions, so closing it restores
+          the model bit for bit. A single-mesh model has nothing to explode.
+Inspect   a ray from the pointer (or the index fingertip) hits a mesh and
+          highlights it, with the mesh's name.
+
+In Slice and Explode, a vertical drag moves the cut or the parts instead of
+tumbling. Any other drag still turns the model, in Orbit and in those tools.
+
+
+9. SAVING, SCREENSHOTS, SETTINGS
+
+Settings live in localStorage. The schema (src/settings/schema.js) is the list
+of every knob: its key, label, type, range, and default. On load, bad values
+are dropped or clamped. A corrupt JSON blob falls back to defaults instead of
+breaking the page. Only schema keys are written back.
+
+The library is IndexedDB. Each saved model has metadata plus the file bytes
+plus a JPEG thumbnail cropped from the live canvas. If IndexedDB is missing,
+the library says so and the rest of the app keeps working.
+
+A screenshot renders the scene into an offscreen target and downloads a PNG.
+The toolbar is not part of the WebGL canvas, so it is not in the picture.
+Recording captures the canvas stream. The webcam inset, when enabled, is drawn
+from the same animation loop, not from a second one.
+
+
+10. TOUCH AND QUALITY
+
+Touch is in src/input/touchGestures.js and produces the same kinds of deltas
+the mouse already produced, so the rest of the app did not grow a second
+control path.
+
+  One finger        orbit, with the same free tumble and the same fade-out as the mouse.
+  Two fingers       pan by the midpoint, zoom by how the distance between the
+                    fingers changes. Spreading them zooms in.
+  A change in the number of fingers is an anchor, not a movement. Putting a
+  second finger down would otherwise teleport the model.
+  touch-action: none on the stage stops the browser from stealing the drag as
+  a page scroll or a page zoom.
+
+Quality is one setting with three levels, because pixel ratio, hand rate, face
+rate, and shader cost have to move together:
+
+  Low      1x pixels, hands at 15 Hz, face at 2 Hz, weaker flicker
+  Medium   1.5x pixels, hands at 30 Hz, face at about 6 Hz
+  High     up to 2x pixels, hands every frame, face at 10 Hz
+
+The pixel ratio is also capped by the screen and by 2. On a normal 1x monitor
+all three levels render at 1x; the difference shows up on a high-density
+screen. If auto quality is on and the frame rate stays under 30 for five
+seconds, the app steps down one level and stays there until you pick a higher
+one yourself. It never climbs back on its own, because bouncing would flicker.
+
+
+11. HEAD PARALLAX, THE PART TO BE READY TO EXPLAIN
+
+Turn it on in Settings, under Performance, "Head parallax". It is off by
+default. The face model is only downloaded the first time you enable it.
+
+What you should see
+  A line at the top of the stage. While the model loads it says
+  "Looking for a face…". When your face is in frame it says "Face recognized",
+  or "Face recognized — lean to look around" if you are still at the centre.
+  A toast says the same thing once. A green crosshair is drawn on the camera
+  preview at the head position.
+  The Debug panel (toolbar, Debug) has its own row that literally reads
+  "Face recognized", plus the head position (x, y), the camera lean, and
+  whether the face tracker is on GPU or CPU. That row is the confirmation that
+  recognition is happening, separate from whether the model has moved yet.
+
+How the tracking works
+  MediaPipe FaceLandmarker runs on the same video as the hands. The head
+  position is the average of four landmarks: the two outer eye corners, the
+  nose tip, and the chin. Averaging means turning your head does not look like
+  sliding it sideways. x is flipped once, into the same mirror space as the
+  hands.
+  The first good sample after you switch the feature on is "neutral". That is
+  why the view does not jump when you enable it. Recalibrate (the button on
+  the parallax pill) takes wherever you are now as the new centre.
+  A sample that jumps wildly is dropped, so a glitch cannot throw the camera.
+  If the face disappears, the first miss is ignored (a blink). The second miss
+  eases the camera back home instead of snapping. On Low quality the face is
+  only sampled twice a second, so the frames in between explicitly hold the
+  last pose. Without that hold, the camera would drift home between samples
+  and jitter.
+
+How the camera moves
+  Lean right and the camera goes left, so you see the model's left side, the
+  way you would if you leaned around a real object. Lean up and the camera
+  rises, so you look down at it.
+  The movement is clamped (about 13 degrees of orbit at full strength, and the
+  depth slider scales that). A small lean already produces most of the offset,
+  and a tiny twitch inside a dead zone does nothing, so the view is not noisy
+  while you sit still.
+  The camera position takes the full offset. The point the camera looks at
+  follows only about 40 percent of that offset. If the look-at point stayed
+  on the model, the hologram would remain glued to the centre and a lean would
+  only change the silhouette, which is easy to miss. If the look-at point
+  followed all the way, the picture would slide and you would not see the side.
+  The partial follow does both: the hologram shifts in the frame, and you see
+  around it.
+  Parallax never writes state.transform. Hands, the mouse, and the head cannot
+  fight, because they change different things. The head moves only the camera.
+
+If the GPU face tracker comes up but never returns a face (this can happen
+while the hand tracker is also on the GPU), and it has not seen a face at all,
+the tracker rebuilds itself on CPU after a short blind streak. Walking out of
+frame after you were already recognized does not trigger that swap.
+
+Sit in front of the camera, turn parallax on, wait until it says
+"Face recognized", then lean. Hold still and press Recalibrate if you have
+shifted in the chair and the view is resting off to one side. The Parallax
+depth slider is the strength. Zero keeps detection running but does not move
+the camera.
+
+
+12. WHERE TO POINT IN THE CODE
+
+  index.html                         the page
+  src/main.js                        wires everything and runs the frame
+  src/state.js                       the one state object and its mutators
+  src/events.js                      the event bus
+  src/loop.js                        the one animation loop
+  src/styles.css                     all of the layout
+  src/render/orientation.js          free tumble and the fade after you let go
+  src/render/scene.js                renderer, camera, pedestal, parallax offset
+  src/render/hologramMaterial.js     the hologram shader
+  src/render/modelLoader.js          glb, gltf, obj, stl
+  src/render/parallax.js             head position to camera offset
+  src/render/presets.js              the six looks
+  src/input/webcam.js                the only getUserMedia call
+  src/input/handTracker.js           MediaPipe hands, the mirror flip, drawing
+  src/input/handAcquire.js           when to search for the second hand
+  src/input/faceTracker.js           MediaPipe face, the head anchor, the crosshair
+  src/input/gestures.js              pinch, fist, palm, zoom, pan, reset
+  src/input/mouseControls.js         mouse and touch
+  src/input/touchGestures.js         the pure touch maths
+  src/perf/quality.js                Low / Medium / High and the watchdog
+  src/tools/                         orbit, slice, explode, inspect
+  src/settings/schema.js             every setting
+  src/storage/settings.js            localStorage
+  src/storage/db.js                  IndexedDB
+  src/ui/                            toolbar, settings, HUD, debug, library
+  public/wasm and public/models      the self-hosted MediaPipe files
+
+
+13. A SHORT DEMO SCRIPT
+
+  1. Load knot.glb. Point out the rim, the scanlines, and the pedestal.
+  2. Drag, right-drag, scroll, double-click reset. Mention the idle spin.
+  3. Show a hand. The status goes to "Hand detected", then "Pinching" as you
+     pinch and turn the model. Raise the second hand: "2 hands". Pinch with
+     both to zoom. Make a fist and drag to pan. Hold an open palm to reset.
+  4. Press 2, 3, 4 for Slice, Explode, Inspect. Use parts.obj for explode and
+     inspect, because the knot is one mesh.
+  5. Open settings. Change a preset (or Shift+1 through Shift+6). Turn on
+     Head parallax, wait for "Face recognized", and lean.
+  6. Turn on Debug and show the "Face recognized" row with the x, y, and lean
+     numbers moving as you lean.
+  7. Save to the library, take a screenshot, and optionally record.
+  8. Drop broken.glb and show that the error does not destroy the current model.
+
+
+14. LIMITS WORTH SAYING OUT LOUD
+
+  It needs a webcam and a browser that can do WebGL2. Tracking is ordinary
+  MediaPipe quality: bad light, a hand at the very edge, or a face turned
+  fully away will drop.
+
+  Parallax tracks one face, whichever MediaPipe returns first.
+
+  Two hands are found by a separate full-frame detector about every 700 ms
+  while one hand is already tracked. While both stay up, that detector updates
+  them about 15 times a second so the hologram can keep drawing.
+
+  The quality watchdog only steps down. It will not step back up by itself.
+
+  A rotate drag from the mouse, from one finger, or from a pinch keeps turning
+  after you let go, then fades until the model is still. The slow idle spin
+  comes back about a second after that.
+
+  Screenshot and recording capture the WebGL view, not the browser chrome.
+  The library stores files only in this browser, on this machine.
+
+  The tests do not open a camera. They lock the maths. A real webcam is still
+  the check for whether a face or a second hand is actually in frame.

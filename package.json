@@ -1,0 +1,23 @@
+{
+  "name": "holographic-model-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Client-side holographic 3D model viewer controlled by webcam hand gestures.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test src/input/gestures.test.js src/input/gestures.delta.test.js src/input/touchGestures.test.js src/input/handAcquire.test.js src/audio/cues.test.js src/audio/sound.test.js src/settings/settings.test.js src/render/presets.test.js src/render/scene.test.js src/render/orientation.test.js src/render/inspect.test.js src/render/parallax.test.js src/perf/quality.test.js src/tools/modeState.test.js src/tools/slice.test.js src/tools/explode.test.js src/library/records.test.js src/capture/frames.test.js src/capture/recorder.test.js src/storage/db.test.js src/storage/library.integration.test.js",
+    "verify:capture": "node verify-capture.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.7",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.35",
+    "three": "^0.171.0"
+  }
+}
