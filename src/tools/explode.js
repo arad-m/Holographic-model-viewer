@@ -51,38 +51,10 @@ export function directionFromCenter(center, index = 0) {
 }
 
 /**
- * Offset for one part. Amount 0 always returns exactly zero, so the caller can
- * restore the original position bit-for-bit by writing this back.
- *
- * @param {{ x: number, y: number, z: number }} center
- * @param {number} amount 0..1
- * @param {number} [index]
- * @returns {{ x: number, y: number, z: number }}
- */
-export function explodeOffset(center, amount, index = 0) {
-  const clamped = clampExplodeAmount(amount);
-  if (clamped === 0) return { x: 0, y: 0, z: 0 };
-  const direction = directionFromCenter(center, index);
-  const scale = clamped * EXPLODE_DISTANCE;
-  return { x: direction.x * scale, y: direction.y * scale, z: direction.z * scale };
-}
-
-/**
  * Clamp an explode amount from a slider or a drag.
  * @param {number} value
  */
 export function clampExplodeAmount(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.min(Math.max(value, 0), 1);
-}
-
-/**
- * Amount needed to keep "part i" clear of its neighbour, used only to decide
- * whether a model is worth exploding (a single mesh has nothing to separate).
- *
- * @param {{ x: number, y: number, z: number }[]} centers
- * @returns {boolean}
- */
-export function hasSeparableParts(centers) {
-  return Array.isArray(centers) && centers.length >= 2;
 }

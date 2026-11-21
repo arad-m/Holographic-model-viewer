@@ -112,22 +112,3 @@ export function saveSettings(settings, preset) {
   }
 }
 
-/** Forget everything stored. */
-export function clearStoredSettings() {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.removeItem(SETTINGS_STORAGE_KEY);
-  } catch {
-    // Nothing to do: the next save will simply fail the same way.
-  }
-}
-
-/** Raw stored text, for diagnostics and tests. */
-export function readStoredSettingsText() {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    return localStorage.getItem(SETTINGS_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}

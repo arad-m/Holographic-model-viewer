@@ -53,12 +53,6 @@ export const TRANSFORM_DEFAULTS = Object.freeze({
 });
 
 /**
- * Interaction modes. 'mouse' = pointer/keyboard only, 'gesture' = webcam hand
- * tracking drives the transform. Later phases may switch between them.
- */
-export const MODES = Object.freeze({ MOUSE: 'mouse', GESTURE: 'gesture' });
-
-/**
  * Default settings. All are flat so patchSettings() can shallow-merge them.
  *   rotate/zoom/panSensitivity: multipliers applied to gesture deltas.
  *   smoothingRate: exponential damping rate in 1/s. Applied dt-independently as
@@ -145,7 +139,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
  * @typedef {Object} AppState
  * @property {AppModel} model
  * @property {AppTransform} transform
- * @property {'mouse'|'gesture'} mode
  * @property {AppSettings} settings
  * @property {AppTool} tool
  * @property {import('./input/gestures.js').GestureState} gesture
@@ -156,7 +149,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export const state = {
   model: { object: null, baseScale: 1 },
   transform: { ...TRANSFORM_DEFAULTS },
-  mode: MODES.MOUSE,
   settings: { ...DEFAULT_SETTINGS },
   tool: { ...TOOL_DEFAULTS },
   gesture: createEmptyGestureState(),
@@ -208,26 +200,6 @@ export function setTransform(patch, options = {}) {
 export function resetTransform() {
   Object.assign(state.transform, TRANSFORM_DEFAULTS);
   notify(['transform']);
-}
-
-/** Add to one finite transform field without emitting (per-frame helper). */
-export function addTransformDelta(key, delta) {
-  if (!TRANSFORM_KEYS.includes(key) || !Number.isFinite(delta)) return;
-  const next = state.transform[key] + delta;
-  if (Number.isFinite(next)) state.transform[key] = next;
-}
-
-/**
- * Switch interaction mode.
- * @param {'mouse'|'gesture'} mode
- */
-export function setMode(mode) {
-  if (mode !== MODES.MOUSE && mode !== MODES.GESTURE) {
-    throw new RangeError(`setMode: unsupported mode "${mode}"`);
-  }
-  if (state.mode === mode) return;
-  state.mode = mode;
-  notify(['mode']);
 }
 
 /**

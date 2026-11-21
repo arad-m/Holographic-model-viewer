@@ -68,9 +68,6 @@ export const LANDMARK = Object.freeze({
 /** MediaPipe Hands always reports 21 points per hand. */
 export const LANDMARKS_PER_HAND = 21;
 
-/** Every action value `GestureState.action` may take. */
-export const GESTURE_ACTIONS = Object.freeze(['none', 'rotate', 'zoom', 'pan', 'reset']);
-
 /** The four fingers used for fist / open-palm classification: [mcp, tip]. */
 export const FINGERS = Object.freeze([
   [LANDMARK.INDEX_FINGER_MCP, LANDMARK.INDEX_FINGER_TIP],
@@ -110,7 +107,6 @@ export const PAN_GAIN = 3;
 export const MIN_SCALE = 0.35;
 export const MAX_SCALE = 4;
 export const MAX_PAN = 2.2;
-export const MAX_PITCH = 1.35;
 
 /** How long a pinching hand may vanish before the grab is released. */
 export const DROPOUT_GRACE_MS = 150;
@@ -178,21 +174,6 @@ const MIN_TWO_HAND_DISTANCE = 1e-3;
  * @property {HandState[]} hands
  * @property {boolean} resetRequested
  */
-/** A hand with no detected pose. Safe to read; every flag is false. */
-export function createEmptyHandState(handedness = 'Unknown') {
-  return {
-    id: '',
-    handedness,
-    landmarks: [],
-    pinch: { active: false, point: { x: 0.5, y: 0.5 } },
-    pinchRatio: Number.POSITIVE_INFINITY,
-    fist: false,
-    openPalm: false,
-    indexPoint: { active: false, tip: { x: 0.5, y: 0.5 } },
-    lastSeenMs: 0,
-  };
-}
-
 /** A neutral GestureState - "no hands, no action, no movement". */
 export function createEmptyGestureState() {
   return {
@@ -838,8 +819,10 @@ export function createOneEuroAxis({ minCutoff, beta, dCutoff }) {
   };
 
   return {
-    /** @param {number} value @param {number} timeSeconds */
-    filter(value, timeSeconds) {
+    /** @param {number} value @param {number} timeSeconds @param {number} [cutoffNow] */
+    filter(value, timeSeconds, cutoffNow = minCutoff) {
+      // A quality-skipped frame re-sends the last sample at the same time: hold.
+      if (primed && timeSeconds <= timePrev) return valuePrev;
       if (!primed || timePrev === null) {
         primed = true;
         timePrev = timeSeconds;
@@ -854,7 +837,7 @@ export function createOneEuroAxis({ minCutoff, beta, dCutoff }) {
       const derivative = (value - valuePrev) / dt;
       const derivativeHat =
         derivativePrev + alpha(dCutoff, dt) * (derivative - derivativePrev);
-      const cutoff = minCutoff + beta * Math.abs(derivativeHat);
+      const cutoff = cutoffNow + beta * Math.abs(derivativeHat);
       const valueHat = valuePrev + alpha(cutoff, dt) * (value - valuePrev);
 
       valuePrev = valueHat;
@@ -908,9 +891,9 @@ export function smoothLandmarks(smoother, landmarks, timeSeconds, strength) {
   return landmarks.map((point, index) => {
     const bank = smoother.filters[index];
     return {
-      x: bank.x.filter(point.x, timeSeconds),
-      y: bank.y.filter(point.y, timeSeconds),
-      z: bank.z.filter(point.z ?? 0, timeSeconds),
+      x: bank.x.filter(point.x, timeSeconds, minCutoff),
+      y: bank.y.filter(point.y, timeSeconds, minCutoff),
+      z: bank.z.filter(point.z ?? 0, timeSeconds, minCutoff),
     };
   });
 }

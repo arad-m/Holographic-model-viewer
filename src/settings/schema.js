@@ -226,11 +226,6 @@ export const SETTINGS_SCHEMA = Object.freeze([
 /** Setting keys the panel controls, in schema order. */
 export const SCHEMA_KEYS = Object.freeze(SETTINGS_SCHEMA.map((setting) => setting.key));
 
-/** @param {string} key */
-export function findSetting(key) {
-  return SETTINGS_SCHEMA.find((setting) => setting.key === key) ?? null;
-}
-
 /**
  * Coerce one raw value for one schema entry.
  * @param {NumberSetting|BooleanSetting|SelectSetting} setting

@@ -38,11 +38,16 @@ export function demoHands(mode, nowMs) {
   return [{ handedness: 'Right', landmarks: buildHand(x, y, 'pinch') }];
 }
 
-/** True when the dev feed is requested. */
+// Read once: the address does not change while the page runs. Never in a build.
+const requestedMode =
+  import.meta.env?.DEV && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('handdemo') ?? ''
+    : '';
+const mode = ['pinch', 'fist', 'palm', 'two'].includes(requestedMode) ? requestedMode : '';
+
+/** The dev feed requested with ?handdemo=, or '' when off. */
 export function demoHandMode() {
-  if (typeof window === 'undefined') return '';
-  const mode = new URLSearchParams(window.location.search).get('handdemo') ?? '';
-  return ['pinch', 'fist', 'palm', 'two'].includes(mode) ? mode : '';
+  return mode;
 }
 
 /**

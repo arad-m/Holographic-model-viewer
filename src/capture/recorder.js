@@ -17,6 +17,9 @@ const CAPTURE_FPS = 30;
 /** How often the UI is allowed to update the elapsed time, in ms. */
 const TICK_INTERVAL_MS = 200;
 
+/** Every chunk stays in memory until stop, so a forgotten recording is cut here. */
+export const MAX_RECORDING_MS = 10 * 60 * 1000;
+
 /** Webcam inset width as a fraction of the frame. */
 const WEBCAM_WIDTH_RATIO = 0.22;
 /** Inset margin as a fraction of the frame. */
@@ -258,7 +261,7 @@ export function createRecorder({ canvas, getWebcamVideo, onTick, onFinish, onErr
     running = true;
 
     try {
-      // A timeslice keeps memory bounded and gives ondataavailable regular work.
+      // A timeslice gives ondataavailable regular work; MAX_RECORDING_MS bounds memory.
       recorder.start(1000);
     } catch (error) {
       running = false;
@@ -291,6 +294,10 @@ export function createRecorder({ canvas, getWebcamVideo, onTick, onFinish, onErr
    */
   function tick(nowMs) {
     if (!running) return;
+    if (elapsedMs(nowMs) >= MAX_RECORDING_MS) {
+      stop();
+      return;
+    }
     if (compositeContext) drawCompositeFrame();
 
     if (nowMs - lastTickEmit < TICK_INTERVAL_MS) return;

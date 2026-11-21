@@ -15,6 +15,7 @@ import {
   PAN_GAIN,
   ROTATE_GAIN,
   createGestureEngine,
+  createHandSmoother,
   describeActionStatus,
   describeHandStatus,
   distance2D,
@@ -23,6 +24,7 @@ import {
   nextPalmActive,
   nextPinchActive,
   resolveAction,
+  smoothLandmarks,
 } from './gestures.js';
 
 const FRAME = 1000 / 60;
@@ -415,4 +417,21 @@ test('two pinch points apart and together map to zoom in and out', () => {
   assert.ok(Math.abs(near - 0.2) < 1e-9);
   assert.ok(Math.abs(far - 0.6) < 1e-9);
   assert.ok(far / near > 1, 'apart zooms in');
+});
+
+test('a stronger smoothing setting lags a jump more', () => {
+  const lagAfterJump = (strength) => {
+    const smoother = createHandSmoother(1);
+    smoothLandmarks(smoother, [{ x: 0, y: 0, z: 0 }], 0, strength);
+    return 1 - smoothLandmarks(smoother, [{ x: 1, y: 0, z: 0 }], FRAME / 1000, strength)[0].x;
+  };
+  assert.ok(lagAfterJump(1) > lagAfterJump(0.1) + 0.05, 'the slider must change the filter');
+});
+
+test('re-sending the same sample at the same time does not move the smoothed point', () => {
+  const smoother = createHandSmoother(1);
+  smoothLandmarks(smoother, [{ x: 0, y: 0, z: 0 }], 0, 0.5);
+  const first = smoothLandmarks(smoother, [{ x: 1, y: 0, z: 0 }], 0.016, 0.5)[0].x;
+  const repeat = smoothLandmarks(smoother, [{ x: 1, y: 0, z: 0 }], 0.016, 0.5)[0].x;
+  assert.equal(repeat, first);
 });

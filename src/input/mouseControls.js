@@ -11,7 +11,7 @@
 // auto-rotation while the user is dragging.
 
 import { setTransform, resetTransform, state } from '../state.js';
-import { tumbleTransform } from '../render/orientation.js';
+import { coastStep, tumbleTransform } from '../render/orientation.js';
 import { INERTIA_DAMPING, INERTIA_STOP, MAX_INERTIA_VELOCITY } from './gestures.js';
 import { sortPointers, touchDelta } from './touchGestures.js';
 
@@ -178,12 +178,16 @@ export function attachMouseControls(element, handlers = {}) {
       }
       // Lifting one of two fingers re-anchors rather than jumping.
       lastTouches = sortPointers(touches.values());
-      if (touches.size === 0) element.classList.remove('is-dragging');
+      if (touches.size === 0) {
+        if (performance.now() - spinStamp > 80) spin = { pitch: 0, yaw: 0 };
+        element.classList.remove('is-dragging');
+      }
       return;
     }
 
     if (!dragMode) return;
-    if (dragMode === 'pan') spin = { pitch: 0, yaw: 0 };
+    // Held still before letting go: the last move's speed is stale, so no throw.
+    if (dragMode === 'pan' || performance.now() - spinStamp > 80) spin = { pitch: 0, yaw: 0 };
     dragMode = null;
     if (activePointerId !== null && element.hasPointerCapture?.(activePointerId)) {
       element.releasePointerCapture(activePointerId);
@@ -281,7 +285,7 @@ export function attachMouseControls(element, handlers = {}) {
      */
     coast(dt) {
       if (dragMode !== null || touches.size > 0) return { pitch: 0, yaw: 0 };
-      const step = coastDecay(spin, dt);
+      const step = coastStep(spin, dt, INERTIA_DAMPING, INERTIA_STOP);
       spin = step.velocity;
       return { pitch: step.pitch, yaw: step.yaw };
     },
@@ -313,22 +317,3 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
-/**
- * @param {{ pitch: number, yaw: number }} velocity
- * @param {number} dt
- */
-function coastDecay(velocity, dt) {
-  const speed = Math.hypot(velocity.pitch, velocity.yaw);
-  if (!(dt > 0) || !(speed > INERTIA_STOP)) {
-    return { pitch: 0, yaw: 0, velocity: { pitch: 0, yaw: 0 } };
-  }
-  const decay = Math.exp(-INERTIA_DAMPING * dt);
-  const pitch = velocity.pitch * decay;
-  const yaw = velocity.yaw * decay;
-  const nextSpeed = Math.hypot(pitch, yaw);
-  return {
-    pitch: velocity.pitch * dt,
-    yaw: velocity.yaw * dt,
-    velocity: nextSpeed > INERTIA_STOP ? { pitch, yaw } : { pitch: 0, yaw: 0 },
-  };
-}

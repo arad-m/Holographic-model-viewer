@@ -42,21 +42,6 @@ export function removeUpdate(callback) {
   return updateCallbacks.delete(callback);
 }
 
-/** Number of registered updates (useful for debugging/tests). */
-export function updateCount() {
-  return updateCallbacks.size;
-}
-
-/** True while the loop is scheduled. */
-export function isRunning() {
-  return running;
-}
-
-/** Seconds of loop time accumulated since startLoop() (dt-clamped, not wall clock). */
-export function getElapsed() {
-  return elapsedSeconds;
-}
-
 /**
  * @param {number} timestamp high-resolution time from rAF, in milliseconds
  */

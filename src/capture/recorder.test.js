@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createRecorder, recordingSupport } from './recorder.js';
+import { MAX_RECORDING_MS, createRecorder, recordingSupport } from './recorder.js';
 
 /** A MediaRecorder stand-in whose lifecycle the test drives by hand. */
 class FakeMediaRecorder {
@@ -122,7 +122,7 @@ test('a recording collects every chunk and hands back one file', async () => {
 
   const media = FakeMediaRecorder.current;
   assert.equal(media.options.mimeType, 'video/webm;codecs=vp9');
-  assert.equal(media.startedWith, 1000, 'a one-second timeslice keeps memory bounded');
+  assert.equal(media.startedWith, 1000, 'a one-second timeslice is requested');
 
   media.emit([1, 2, 3]);
   media.emit([4, 5]);
@@ -324,4 +324,30 @@ test('dispose stops a running recorder without delivering a file', () => {
   assert.equal(canvas.stream.tracks[0].stopped, true);
 
   globalThis.MediaRecorder = realRecorder;
+});
+
+test('a recording that runs past the cap stops and still delivers its file', () => {
+  const realRecorder = globalThis.MediaRecorder;
+  globalThis.MediaRecorder = FakeMediaRecorder;
+  try {
+    let finished = null;
+    const recorder = createRecorder({
+      canvas: fakeCanvas(),
+      onFinish: (result) => {
+        finished = result;
+      },
+      onError: () => assert.fail('the capped recording should not fail'),
+    });
+    assert.equal(recorder.start().ok, true);
+    FakeMediaRecorder.current.emit([1, 2, 3]);
+
+    recorder.tick(performance.now() + MAX_RECORDING_MS - 1000);
+    assert.equal(recorder.isRecording(), true, 'still under the cap');
+
+    recorder.tick(performance.now() + MAX_RECORDING_MS + 1);
+    assert.equal(recorder.isRecording(), false);
+    assert.equal(finished?.blob.size, 3);
+  } finally {
+    globalThis.MediaRecorder = realRecorder;
+  }
 });

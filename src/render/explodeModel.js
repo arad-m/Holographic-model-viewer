@@ -12,7 +12,7 @@
 // groups and the loader's own scaling behave correctly.
 
 import { Matrix4, Vector3 } from 'three';
-import { EXPLODE_DISTANCE, directionFromCenter } from '../tools/explode.js';
+import { EXPLODE_DISTANCE, clampExplodeAmount, directionFromCenter } from '../tools/explode.js';
 
 /**
  * @param {import('three').Object3D} wrapper the model wrapper (transform owner)
@@ -43,16 +43,8 @@ export function createExplodeModel(wrapper) {
     if (!node.geometry) return;
 
     node.updateWorldMatrix(true, false);
-    worldCenter.set(0, 0, 0);
-    const box = node.geometry.boundingBox ?? node.geometry.computeBoundingBox();
-    if (node.geometry.boundingBox) {
-      worldCenter.copy(node.geometry.boundingBox.getCenter(new Vector3()));
-      worldCenter.applyMatrix4(node.matrixWorld);
-    } else if (box) {
-      worldCenter.copy(box.getCenter(new Vector3())).applyMatrix4(node.matrixWorld);
-    } else {
-      worldCenter.copy(node.getWorldPosition(new Vector3()));
-    }
+    if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+    node.geometry.boundingBox.getCenter(worldCenter).applyMatrix4(node.matrixWorld);
 
     center.copy(worldCenter).applyMatrix4(toWrapper);
     const direction = directionFromCenter(center, index);
@@ -77,8 +69,7 @@ export function createExplodeModel(wrapper) {
    * @param {number} amount 0..1
    */
   function apply(amount) {
-    const clamped = Number.isFinite(amount) ? Math.min(Math.max(amount, 0), 1) : 0;
-    const scale = clamped * EXPLODE_DISTANCE;
+    const scale = clampExplodeAmount(amount) * EXPLODE_DISTANCE;
     for (const part of parts) {
       if (scale === 0) {
         part.mesh.position.copy(part.original);

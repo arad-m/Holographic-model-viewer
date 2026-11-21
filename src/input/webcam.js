@@ -26,9 +26,8 @@ const CAMERA_CONSTRAINTS = Object.freeze({
 const VIDEO_READY_STATE = 2;
 const START_TIMEOUT_MS = 10000;
 /**
- * How long to wait for an answer to the permission prompt. A dismissed prompt
- * leaves getUserMedia pending forever, which would freeze the HUD on
- * "Starting camera…" with no way out.
+ * After this long with no answer to the permission prompt, explain why the
+ * camera is not on yet. A dismissed prompt can leave getUserMedia pending forever.
  */
 const PROMPT_TIMEOUT_MS = 20000;
 
@@ -148,15 +147,18 @@ export function attachWebcam(container, { onEnded } = {}) {
     clearNotice();
 
     try {
-      const nextStream = await withTimeout(
-        navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS),
+      // A slow answer to the prompt is still an answer: say we are waiting, keep waiting.
+      const promptTimer = setTimeout(
+        () => showNotice('timeout', 'Waiting for camera permission — allow it in the address bar. Mouse controls still work.'),
         PROMPT_TIMEOUT_MS,
-        () =>
-          new WebcamError(
-            'timeout',
-            'No answer to the camera permission prompt. Allow it in the address bar and reload — mouse controls still work.',
-          ),
       );
+      let nextStream;
+      try {
+        nextStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+      } finally {
+        clearTimeout(promptTimer);
+      }
+      clearNotice();
       stream = nextStream;
       watchTracks(nextStream);
       video.srcObject = nextStream;
@@ -202,42 +204,6 @@ export function attachWebcam(container, { onEnded } = {}) {
       element.remove();
     },
   };
-}
-
-/**
- * Reject with `errorFactory()` if `promise` has not settled within `timeoutMs`.
- * A late success is released immediately so the camera light cannot stay on.
- * @template T
- * @param {Promise<T>} promise
- * @param {number} timeoutMs
- * @param {() => Error} errorFactory
- * @returns {Promise<T>}
- */
-function withTimeout(promise, timeoutMs, errorFactory) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      reject(errorFactory());
-    }, timeoutMs);
-
-    promise.then(
-      (value) => {
-        if (settled) {
-          const lateStream = /** @type {{ getTracks?: () => MediaStreamTrack[] }} */ (value);
-          for (const track of lateStream.getTracks?.() ?? []) track.stop();
-          return;
-        }
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        if (settled) return;
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }
 
 /**

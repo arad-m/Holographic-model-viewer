@@ -63,7 +63,7 @@ import {
   applyHologramStyle,
   createHologramStyle,
 } from './render/presets.js';
-import { loadStoredSettings, saveSettings } from './storage/settings.js';
+import { loadStoredSettings } from './storage/settings.js';
 import { attachSettingsPersistence } from './settings/persistSettings.js';
 import {
   deleteModel,
@@ -805,7 +805,6 @@ function handleResetSettings() {
   resetSettings();
   hologramStyle.setPreset(state.settings.hologramPreset);
   applyLiveSettings();
-  saveSettings(state.settings, hologramStyle.getPresetId());
   feedback.toast('Settings reset to defaults.', 'info');
 }
 
@@ -1508,7 +1507,8 @@ async function preloadModelsFromQuery() {
   }
 }
 
-if (new URLSearchParams(window.location.search).has('model')) {
+// Dev only: in a build, a shared link must not fetch and save someone else's file.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('model')) {
   preloadModelsFromQuery();
 }
 
